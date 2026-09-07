@@ -117,6 +117,12 @@ echo "==> $DEB ($(du -h "$DEB" | cut -f1))"
 # the same toolchain, but the runner's Go and Xcode both move under us, so
 # including it would fire this guard on every unrelated toolchain bump.
 #
+# Excluded by PATH, not by name: two files in this package are called `gh` --
+# the 38MB binary and the 16KB bash completion script. `! -name gh` dropped
+# both, so a completion change (upstream adds a command, the script changes)
+# was invisible to the guard. That is exactly the class of silent packaging
+# change this exists to catch.
+#
 # version.env has to be excluded for the same reason, one step removed, and
 # that is the part worth spelling out: it records GH_BINARY_SHA256 -- the hash
 # of the very binary excluded above. Leave it in and the thing deliberately
@@ -132,7 +138,8 @@ payload_digest() {
       && mkdir -p x && tar xf data.tar.* -C x 2>/dev/null \
       && tar xf control.tar.* -C x 2>/dev/null )
     ( cd "$dir/x" && find . -type f \
-        ! -name control ! -name md5sums ! -name gh ! -name version.env -print0 | sort -z \
+        ! -name control ! -name md5sums ! -name version.env \
+        ! -path ./var/jb/usr/local/lib/github-cli/gh -print0 | sort -z \
       | xargs -0 shasum -a 256 2>/dev/null ) | shasum -a 256 | cut -d' ' -f1
     rm -rf "$dir"
 }
