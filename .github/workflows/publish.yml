@@ -40,10 +40,16 @@ jobs:
       origin: gh-port
       label: GitHub CLI for iOS
       description: GitHub CLI, built natively for jailbroken iOS
-      # tools/build-payload.sh needs Xcode's iPhoneOS SDK and ldid: the
-      # ios/arm64 Go port links through clang, and only that clang emits a
-      # Mach-O claiming platform 2. There is no way to produce this on Linux.
+      # tools/build-payload.sh needs Xcode's iPhoneOS SDK: the ios/arm64 Go
+      # port links through clang, and only that clang emits a Mach-O claiming
+      # platform 2. There is no way to produce this on Linux.
       needs-macos: true
+      # Whatever is current; gh's go.mod carries a `toolchain` directive, so
+      # the Go it needs is fetched automatically if this one is older.
+      go-version: stable
+      # iOS refuses to exec a Mach-O with no code signature, and the runners
+      # have no ldid.
+      brew-packages: ldid
       version: ${{ inputs.version || '' }}
     secrets:
       # Its own key, not the one that signs reallyitsandi.com and not
