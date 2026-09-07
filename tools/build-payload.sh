@@ -34,8 +34,24 @@ CI_TOOLS="${CI_TOOLS:-$("$ROOT/tools/ci.sh")}"
 # clangwrap.sh passes it to clang as -mios-version-min.
 export IOS_MIN=15.0
 
-command -v go   >/dev/null || { echo "need go (brew install go)"; exit 1; }
-command -v ldid >/dev/null || { echo "need ldid (brew install ldid)"; exit 1; }
+# The shared workflow hands this script a bare macOS runner and nothing else:
+# it deliberately knows nothing about Go or ldid, because the next port along
+# may need neither. So provisioning the toolchain is this script's job. Only in
+# CI -- on somebody's laptop, silently installing Homebrew packages is not this
+# script's business, so there it just says what is missing.
+#
+# `brew install go` is whatever is current; gh's go.mod carries a `toolchain`
+# directive, so the Go it actually wants is fetched automatically if this one
+# is older. ldid is needed because iOS refuses to exec a Mach-O with no code
+# signature and the runners do not ship it.
+need() {
+    command -v "$1" >/dev/null && return 0
+    [ -n "${CI:-}" ] || { echo "need $1 (brew install $1)"; exit 1; }
+    echo "==> brew install $1"
+    brew install "$1"
+}
+need go
+need ldid
 xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1 \
     || { echo "need the iPhoneOS SDK -- install Xcode and run xcode-select --switch"; exit 1; }
 [ -x "$CI_TOOLS/clangwrap.sh" ] || { echo "no clangwrap.sh in CI_TOOLS ($CI_TOOLS)"; exit 1; }
