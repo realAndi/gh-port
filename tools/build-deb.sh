@@ -115,8 +115,16 @@ echo "==> $DEB ($(du -h "$DEB" | cut -f1))"
 #
 # gh itself is excluded from the comparison. Go builds are reproducible given
 # the same toolchain, but the runner's Go and Xcode both move under us, so
-# including it would fire this guard on every unrelated toolchain bump. The
-# version it was built from IS compared, via version.env.
+# including it would fire this guard on every unrelated toolchain bump.
+#
+# version.env has to be excluded for the same reason, one step removed, and
+# that is the part worth spelling out: it records GH_BINARY_SHA256 -- the hash
+# of the very binary excluded above. Leave it in and the thing deliberately
+# excluded leaks straight back in through the file describing it, and the guard
+# fires on every toolchain bump anyway. This is not a hole: version.env's other
+# fields are GH_VERSION and GH_COMMIT, and a change to either also changes the
+# package version, hence the filename, so the guard is not consulted at all.
+# Nothing meaningful can slip past.
 payload_digest() {
     local deb="$1" dir
     dir="$(mktemp -d)"
@@ -124,7 +132,7 @@ payload_digest() {
       && mkdir -p x && tar xf data.tar.* -C x 2>/dev/null \
       && tar xf control.tar.* -C x 2>/dev/null )
     ( cd "$dir/x" && find . -type f \
-        ! -name control ! -name md5sums ! -name gh -print0 | sort -z \
+        ! -name control ! -name md5sums ! -name gh ! -name version.env -print0 | sort -z \
       | xargs -0 shasum -a 256 2>/dev/null ) | shasum -a 256 | cut -d' ' -f1
     rm -rf "$dir"
 }
