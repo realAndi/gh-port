@@ -116,7 +116,7 @@ GH_TOKEN=ghp_... gh api user             # environment only, nothing stored
 **No build secrets are involved.** Upstream hardcodes the "GitHub CLI" OAuth
 app — client ID `178c6fc778ccc68e1d6a` — in `internal/authflow/flow.go:20-25`,
 with the comment "This value is safe to be embedded in version control".
-`tools/build-gh.sh` deliberately does not inject `oauthClientID` or
+`tools/build-payload.sh` deliberately does not inject `oauthClientID` or
 `oauthClientSecret` via `-ldflags -X`, so a default build does a real
 `gh auth login` against the same app the official builds use.
 
@@ -176,7 +176,7 @@ but the upstream:
 This is the entire build:
 
 ```sh
-CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC=tools/clangwrap.sh \
+CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC=$CI_TOOLS/clangwrap.sh \
   go build -trimpath \
     -ldflags "-s -w -X github.com/cli/cli/v2/internal/build.Version=2.100.0 \
                     -X github.com/cli/cli/v2/internal/build.Date=2026-09-03" \
@@ -204,10 +204,12 @@ inspected:
 | `CC` | `LC_BUILD_VERSION` | CoreFoundation is linked as | on device |
 |---|---|---|---|
 | default `clang` (macOS SDK) | platform 1 (macOS) | `.../CoreFoundation.framework/Versions/A/CoreFoundation` | dyld rejects the platform; the path does not exist on iOS either |
-| `tools/clangwrap.sh` | platform 2 (iOS), minos 15.0 | `.../CoreFoundation.framework/CoreFoundation` | loads |
+| `clangwrap.sh` | platform 2 (iOS), minos 15.0 | `.../CoreFoundation.framework/CoreFoundation` | loads |
 
 The wrong build links cleanly and exits 0. Nothing in the `go build` output
-distinguishes the two. `tools/clangwrap.sh` is the fix in its entirety:
+distinguishes the two. `clangwrap.sh` — shared with the other ports, in
+[ios-port-ci](https://github.com/realAndi/ios-port-ci) — is the fix in its
+entirety:
 
 ```sh
 SDK=$(xcrun --sdk iphoneos --show-sdk-path)
@@ -220,8 +222,8 @@ to rewrite in 38 C strings inside the Claude Code binary, because Bun `dlopen`s
 CoreFoundation by its macOS bundle path at runtime. Here the linker simply
 writes the iOS path when pointed at the iOS SDK, and there is nothing to patch.
 
-Because the failure is invisible at build time, `tools/check-macho.py` runs
-after every build and again on the Linux runner that assembles the package.
+Because the failure is invisible at build time, `check-macho.py` runs after
+every build and again on the Linux runner that assembles the package.
 It parses the load commands in pure Python and fails the build unless
 `LC_BUILD_VERSION` is platform 2, every `LC_LOAD_DYLIB` is on an explicit
 allow-list of libraries known to exist on iOS (with CoreFoundation at the iOS
@@ -304,7 +306,7 @@ Go's `crypto/x509` on darwin verifies certificate chains through
 `SecTrustCopyCertificateChain`. Both are among the seven `Sec*` imports above.
 `SecTrustCopyCertificateChain` is iOS 15.0+.
 
-`tools/build-gh.sh` pins `IOS_MIN=15.0` and the control file declares
+`tools/build-payload.sh` pins `IOS_MIN=15.0` and the control file declares
 `firmware (>= 15.0)` to match. Lowering the minimum produces a binary that
 links just as cleanly and whose TLS cannot work on the devices the lower floor
 admits — the linker does not check symbol availability against the deployment
@@ -404,31 +406,47 @@ The domain mirrors from the Pages repo, verifying each package against the
 checksum the upstream index declares and keeping the newest few for rollback.
 Adding the Pages URL directly also works and gets the same packages a little
 sooner; it needs its own key, served as
-[`ghport.gpg`](https://realandi.github.io/gh-port/ghport.gpg).
+[`key.gpg`](https://realandi.github.io/gh-port/key.gpg).
 
 ### The workflow
 
 `.github/workflows/publish.yml` runs daily at 07:00 UTC, on
 `workflow_dispatch` (optionally with a specific upstream tag), and on pushes to
-`main` that touch `packaging/`, `tools/` or the workflow itself. Three jobs:
+`main` that touch `packaging/`, `tools/` or the workflow itself. It is a thin
+caller of the reusable workflow in
+[ios-port-ci](https://github.com/realAndi/ios-port-ci)`@v1`, which holds the
+orchestration shared with CCForiOS; this repository supplies only what is
+specific to `gh`. That split is a maintenance one: a deprecated action or a new
+hardening step gets applied once instead of N times and forgotten in the N+1th,
+which is how a repository quietly stops being signed.
 
-1. **resolve** (Ubuntu) — ask the GitHub API for `cli/cli`'s latest release
-   tag, or take the one given, then `git ls-remote --exit-code` to confirm the
-   tag exists. A tag that does not exist would otherwise fail four minutes
-   later inside the macOS job, after paying for a checkout and a Go install.
-2. **build** (`macos-15`, **mandatory**) — `brew install ldid`, then
-   `tools/build-gh.sh`. This has to be macOS: the ios/arm64 port links through
-   clang, and clang needs Xcode's iPhoneOS SDK to emit a Mach-O that claims
-   platform 2. There is no way to produce this binary on Linux. The binary,
-   completions, license text and `gh.version` move to the next job as an
-   artifact.
+Three jobs, each calling back into one of this repository's scripts:
+
+1. **resolve** (Ubuntu) — `tools/resolve-version.sh` asks the GitHub API for
+   `cli/cli`'s latest release tag, or takes the one given, then
+   `git ls-remote --exit-code` to confirm the tag exists. A tag that does not
+   exist would otherwise fail four minutes later inside the macOS job, after
+   paying for a checkout and a Go install.
+2. **payload** (`macos-15`, **mandatory** — the caller passes
+   `needs-macos: true`) — `brew install ldid`, then `tools/build-payload.sh`.
+   This has to be macOS: the ios/arm64 port links through clang, and clang
+   needs Xcode's iPhoneOS SDK to emit a Mach-O that claims platform 2. There is
+   no way to produce this binary on Linux. `packaging/payload/` — the binary,
+   completions, license text and `PAYLOAD.version` — moves to the next job as
+   an artifact.
 3. **publish** (Ubuntu) — `tools/build-deb.sh` re-runs `check-macho.py` on the
    artifact (a binary that lost its signature crossing the runner boundary
-   fails here rather than on a phone), builds the `.deb`,
-   `tools/fetch-published.sh` pulls the packages already on the live repo
-   forward and keeps the newest 10, and `tools/make-repo.py` regenerates
+   fails here rather than on a phone) and builds the `.deb`. Then the shared
+   half takes over: `fetch-published.sh` pulls the packages already on the live
+   repo forward and keeps the newest 10, and `make-repo.py` regenerates
    `Packages{,.gz,.bz2,.xz}` and `Release`, signs them, and the result deploys
    to GitHub Pages.
+
+The shared tools are checked out at `.ci/tools/` during a run and reached
+through `$CI_TOOLS`. Locally `tools/ci.sh` clones the same pinned ref to the
+same place, so `build-payload.sh` and `build-deb.sh` run identically on a
+laptop and on a runner rather than the runner path being the only one anybody
+exercises.
 
 Because the package version mirrors upstream, there is no state to track:
 Sileo sees a new version exactly when GitHub tags one.
@@ -472,8 +490,9 @@ workflow reported success.
 ### Signing
 
 The published `Release` is signed into `InRelease` and `Release.gpg`. The key
-lives in the `GHIOS_GPG_KEY` repository secret (`GHIOS_GPG_KEY_ID` names it)
-because a scheduled rebuild has to sign unattended. It is deliberately its own
+lives in the `GHIOS_GPG_KEY` repository secret (`GHIOS_GPG_KEY_ID` names it),
+handed to the shared workflow as its `GPG_KEY` / `GPG_KEY_ID`, because a
+scheduled rebuild has to sign unattended. It is deliberately its own
 key — not the one that signs reallyitsandi.com, which never leaves a local
 machine, and not CCForiOS's either — so a compromise of this repository's CI
 cannot forge packages for the others. If the secret is missing the workflow
@@ -486,27 +505,38 @@ CLI takes it with `[trusted=yes]`.
 
 | step | needs |
 |---|---|
-| `tools/build-gh.sh` | **macOS**: Xcode with the iPhoneOS SDK (`xcrun --sdk iphoneos`), Go, `ldid` (`brew install go ldid`) |
+| `tools/resolve-version.sh` | `curl`, `git`, `python3` |
+| `tools/build-payload.sh` | **macOS**: Xcode with the iPhoneOS SDK (`xcrun --sdk iphoneos`), Go, `ldid` (`brew install go ldid`) |
 | `tools/build-deb.sh` | `dpkg-deb` (`brew install dpkg` / `apt install dpkg-dev`), `python3` |
-| `tools/make-repo.py` | `python3`, `dpkg-deb`; `gpg` to sign |
+| `$CI_TOOLS/make-repo.py` | `python3`, `dpkg-deb`; `gpg` to sign |
 
-Only the first step needs macOS. Go's `go.mod` carries a `toolchain`
+Only `build-payload.sh` needs macOS. Go's `go.mod` carries a `toolchain`
 directive, so an older local Go fetches the one `gh` wants.
+
+The last one is not in this repository. `make-repo.py`, `fetch-published.sh`,
+`check-macho.py` and `clangwrap.sh` are identical in every port, so they live in
+[ios-port-ci](https://github.com/realAndi/ios-port-ci) and a fix to one of them
+reaches all the ports at once. Nothing has to be installed by hand: `tools/ci.sh`
+clones that repository at its pinned tag into `.ci/`, and the build scripts
+default `CI_TOOLS` to whatever it prints.
 
 ### Build
 
 ```sh
-# 1. The binary, completions, license and gh.version: packaging/payload/
-./tools/build-gh.sh                  # or: ./tools/build-gh.sh v2.100.0
+# 1. Which upstream tag — echoes it, and validates one you name
+V=$(./tools/resolve-version.sh)      # or: ./tools/resolve-version.sh v2.100.0
 
-# 2. The package: repo/debs/com.andi.github-cli_<version>-<revision>_iphoneos-arm64.deb
+# 2. The binary, completions, license and PAYLOAD.version: packaging/payload/
+./tools/build-payload.sh "$V"
+
+# 3. The package: repo/debs/com.andi.github-cli_<version>-<revision>_iphoneos-arm64.deb
 ./tools/build-deb.sh                 # revision defaults to packaging/revision
 
-# 3. APT metadata: repo/Packages{,.gz,.bz2,.xz} and repo/Release
-python3 tools/make-repo.py repo
+# 4. APT metadata: repo/Packages{,.gz,.bz2,.xz} and repo/Release
+python3 "$(./tools/ci.sh)/make-repo.py" repo
 ```
 
-`build-gh.sh` clones the tag at depth 1 (or uses `GH_SRC` if set), stamps
+`build-payload.sh` clones the tag at depth 1 (or uses `GH_SRC` if set), stamps
 `build.Version` and `build.Date` the way upstream does — the date from the
 commit date, and `SOURCE_DATE_EPOCH` likewise — so rebuilding a tag is
 reproducible, then signs with `ldid -S packaging/payload/entitlements.plist`
@@ -517,8 +547,8 @@ source, because the iOS binary cannot be run on the build machine. Cobra's
 completion scripts are static text and identical whichever `GOOS` produced
 them. The host binary is never packaged.
 
-`build-deb.sh` reads the version from `packaging/payload/gh.version`, which
-`build-gh.sh` writes, so the two cannot disagree about what was compiled. Set
+`build-deb.sh` reads the version from `packaging/payload/PAYLOAD.version`, which
+`build-payload.sh` writes, so the two cannot disagree about what was compiled. Set
 `GH_REPO` (`owner/name`) and `GH_PAGES` (`owner.github.io/name`) to fill in the
 `Icon:` and `Depiction:` fields and to enable the revision guard; without them
 those fields are dropped and the guard is skipped.
@@ -574,18 +604,28 @@ packaging/payload/version.env.in     filled in by build-deb.sh
 packaging/payload/gh                 the binary (built; gitignored)
 packaging/payload/completions/       _gh, gh.bash (built; gitignored)
 packaging/payload/gh.LICENSE         upstream's MIT text (built; gitignored)
-packaging/payload/gh.version         "<version> <commit> <date>" (built; gitignored)
+packaging/payload/PAYLOAD.version    "<version> <commit> <date>" (built; gitignored)
 packaging/revision                   package revision; bump to force a rebuild
 packaging/depiction.html, index.html copied into the published repo
-tools/build-gh.sh                    the cross-compile (macOS only)
-tools/clangwrap.sh                   clang → iPhoneOS SDK; the reason there is no patcher
-tools/check-macho.py                 platform, dylib allow-list, signature; pure stdlib
-tools/build-deb.sh                   the .deb, plus the revision guard
-tools/fetch-published.sh             carry published versions forward
-tools/make-repo.py                   Packages + Release + signing
+tools/resolve-version.sh             which upstream tag to build (Linux)
+tools/build-payload.sh               the cross-compile (macOS only)
+tools/build-deb.sh                   the .deb, plus the revision guard (Linux)
+tools/ci.sh                          where $CI_TOOLS is; clones ios-port-ci for local runs
 tools/make-icon.py                   assets/icon.png, pure stdlib
 repo/                                generated APT repo (deployed to Pages; gitignored)
-.github/workflows/publish.yml        resolve → build (macOS) → publish
+.ci/                                 shared tools, cloned or checked out (gitignored)
+.github/workflows/publish.yml        thin caller of ios-port-ci@v1
+```
+
+The three `tools/` scripts are the whole contract with the shared CI. The rest
+is in [ios-port-ci](https://github.com/realAndi/ios-port-ci), arriving as
+`$CI_TOOLS`:
+
+```
+clangwrap.sh                         clang → iPhoneOS SDK; the reason there is no patcher
+check-macho.py                       platform, dylib allow-list, signature; pure stdlib
+fetch-published.sh                   carry published versions forward
+make-repo.py                         Packages + Release + signing
 ```
 
 ## Known limitations

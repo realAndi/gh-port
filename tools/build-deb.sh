@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Assemble the .deb from a binary already built by tools/build-gh.sh.
+# Assemble the .deb from a payload already built by tools/build-payload.sh.
 #
 #   tools/build-deb.sh [revision]
 #
-# The version comes from packaging/payload/gh.version, which build-gh.sh writes,
-# so the two cannot disagree about what was compiled.
+# The version comes from packaging/payload/PAYLOAD.version, which
+# build-payload.sh writes, so the two cannot disagree about what was compiled.
 #
-# Split deliberately: build-gh.sh needs macOS (Xcode's iPhoneOS SDK, ldid),
+# Split deliberately: build-payload.sh needs macOS (Xcode's iPhoneOS SDK, ldid),
 # build-deb.sh needs dpkg-deb. In CI they are different runners and the binary
 # moves between them as an artifact.
 #
@@ -19,15 +19,20 @@ OUT="${OUT:-$ROOT/repo/debs}"
 GH_REPO="${GH_REPO:-}"
 GH_PAGES="${GH_PAGES:-}"
 
+# check-macho.py is shared with the other ports and lives in
+# realAndi/ios-port-ci. CI checks that out and points CI_TOOLS at it; locally
+# tools/ci.sh clones it on first use.
+CI_TOOLS="${CI_TOOLS:-$("$ROOT/tools/ci.sh")}"
+
 command -v dpkg-deb >/dev/null || { echo "need dpkg-deb (brew install dpkg)"; exit 1; }
 [ -f "$PAYLOAD/gh" ] || {
-    echo "missing packaging/payload/gh -- run tools/build-gh.sh on macOS first"; exit 1; }
+    echo "missing packaging/payload/gh -- run tools/build-payload.sh on macOS first"; exit 1; }
 [ -f "$PAYLOAD/gh.LICENSE" ] || {
-    echo "missing packaging/payload/gh.LICENSE -- rebuild with tools/build-gh.sh"; exit 1; }
-[ -f "$PAYLOAD/gh.version" ] || {
-    echo "missing packaging/payload/gh.version -- rebuild with tools/build-gh.sh"; exit 1; }
+    echo "missing packaging/payload/gh.LICENSE -- rebuild with tools/build-payload.sh"; exit 1; }
+[ -f "$PAYLOAD/PAYLOAD.version" ] || {
+    echo "missing packaging/payload/PAYLOAD.version -- rebuild with tools/build-payload.sh"; exit 1; }
 
-read -r VERSION COMMIT DATE < "$PAYLOAD/gh.version"
+read -r VERSION COMMIT DATE < "$PAYLOAD/PAYLOAD.version"
 REVISION="${1:-$(cat "$ROOT/packaging/revision" 2>/dev/null || echo 1)}"
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -43,7 +48,7 @@ echo "==> gh $VERSION ($COMMIT, $DATE) revision $REVISION"
 # trusting that the artifact arrived intact. Pure stdlib on purpose: otool and
 # codesign do not exist on the Linux side, which is exactly where this matters.
 echo "==> verifying the Mach-O"
-python3 "$ROOT/tools/check-macho.py" "$PAYLOAD/gh"
+python3 "$CI_TOOLS/check-macho.py" "$PAYLOAD/gh"
 
 echo "==> staging"
 STAGE="$TMP/stage"
