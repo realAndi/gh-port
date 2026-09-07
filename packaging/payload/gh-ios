@@ -1,0 +1,26 @@
+#!/var/jb/usr/bin/zsh
+# GitHub CLI, built for iOS. Sets the handful of things gh cannot work out for
+# itself on a phone, then gets out of the way.
+
+# REQUIRED. os.UserHomeDir() on GOOS=ios returns "/" when $HOME is unset
+# (Go's os/file.go: `case "ios": return "/", nil`), not an error -- so gh would
+# silently read and write /.config/gh and every login would appear to vanish.
+# Everything else here is a convenience; this one is correctness.
+export HOME="${HOME:-/var/jb/var/mobile}"
+
+# gh opens URLs with `open`, which is macOS-only. iOS's equivalent is uiopen
+# from uikittools. gh's launcher precedence is: explicit flag, GH_BROWSER, the
+# `browser:` config key, then BROWSER -- so an exported GH_BROWSER, or a
+# `gh config set browser ...`, still wins over this.
+if [ -z "$GH_BROWSER" ] && [ -z "$BROWSER" ]; then
+    for opener in /var/jb/usr/bin/uiopen /usr/bin/uiopen; do
+        [ -x "$opener" ] && { export GH_BROWSER="$opener"; break; }
+    done
+fi
+
+# gh's own release checker would tell the user to `brew upgrade gh` or download
+# a darwin build, neither of which applies. Updates come from apt, same as
+# everything else on the device.
+export GH_NO_UPDATE_NOTIFIER="${GH_NO_UPDATE_NOTIFIER:-1}"
+
+exec /var/jb/usr/local/lib/github-cli/gh "$@"

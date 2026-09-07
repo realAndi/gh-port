@@ -1,0 +1,146 @@
+name: build and publish repo
+
+# Rebuilds the package for whatever cli/cli currently tags as its latest release
+# and republishes the APT repo to GitHub Pages. There is no state to track: the
+# package version mirrors upstream, so Sileo only sees a new version when GitHub
+# actually ships one. Bump packaging/revision to force a rebuild (e.g. after a
+# wrapper change) without waiting for upstream.
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream gh tag to build (blank = latest release)"
+        required: false
+  push:
+    branches: [main]
+    paths: ["packaging/**", "tools/**", ".github/workflows/publish.yml"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      revision: ${{ steps.v.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          set -euo pipefail
+          V="${{ github.event.inputs.version }}"
+          if [ -z "$V" ]; then
+            V=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+          fi
+          case "$V" in v*) ;; *) V="v$V" ;; esac
+          # A tag that does not exist would otherwise fail four minutes later,
+          # inside the macOS job, after paying for a checkout and a Go install.
+          git ls-remote --exit-code --tags https://github.com/cli/cli.git "refs/tags/$V" >/dev/null \
+            || { echo "cli/cli has no tag $V"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "revision=$(cat packaging/revision)" >> "$GITHUB_OUTPUT"
+          echo "building gh $V-$(cat packaging/revision)"
+
+  build:
+    # Has to be macOS: the ios/arm64 Go port requires cgo, so the link goes
+    # through clang, and clang needs Xcode's iPhoneOS SDK to emit a Mach-O that
+    # claims platform 2. There is no way to produce this binary on Linux.
+    needs: resolve
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Whatever is current; gh's go.mod carries a `toolchain` directive, so
+          # the Go it needs is fetched automatically if this one is older.
+          go-version: stable
+          cache: false
+      # iOS refuses to exec a Mach-O with no code signature, and the runners
+      # have no ldid.
+      - name: Install ldid
+        run: brew install ldid
+      - name: Build gh for ios/arm64
+        run: ./tools/build-gh.sh "${{ needs.resolve.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gh-ios-arm64
+          path: |
+            packaging/payload/gh
+            packaging/payload/gh.version
+            packaging/payload/gh.LICENSE
+            packaging/payload/completions/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gh-ios-arm64
+          path: packaging/payload
+      - name: Install dpkg tooling
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
+
+      # Needed before the build so the control file knows the repo's own URL.
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - name: Build package
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_PAGES: ${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          # build-deb.sh re-runs tools/check-macho.py against the artifact, so a
+          # binary that lost its signature crossing the runner boundary, or was
+          # built against the wrong SDK, fails here rather than on a phone.
+          ./tools/build-deb.sh "${{ needs.resolve.outputs.revision }}"
+
+      - name: Carry forward already-published versions
+        run: ./tools/fetch-published.sh "${{ steps.pages.outputs.base_url }}" 10
+
+      # Without this the repo is unsigned and apt refuses it unless the source
+      # line says [trusted=yes]. Sileo and Zebra check neither.
+      - name: Import signing key
+        env:
+          GHIOS_GPG_KEY: ${{ secrets.GHIOS_GPG_KEY }}
+        run: |
+          if [ -z "$GHIOS_GPG_KEY" ]; then
+            echo "::warning::GHIOS_GPG_KEY not set — the repository will be published unsigned"
+            exit 0
+          fi
+          printf '%s\n' "$GHIOS_GPG_KEY" | gpg --batch --quiet --import
+          gpg --list-secret-keys --keyid-format=long | sed -n 's/^sec  /  key: /p'
+
+      - name: Generate APT metadata
+        env:
+          REPO_ORIGIN: ${{ github.event.repository.name }}
+          GHIOS_GPG_KEY_ID: ${{ secrets.GHIOS_GPG_KEY_ID }}
+        run: |
+          cp packaging/depiction.html repo/depiction.html
+          cp packaging/index.html     repo/index.html
+          python3 tools/make-repo.py repo
+          ls -la repo repo/debs
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo
+      - id: deploy
+        uses: actions/deploy-pages@v4

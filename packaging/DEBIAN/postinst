@@ -1,0 +1,74 @@
+#!/var/jb/usr/bin/zsh
+# Everything is already on disk -- dpkg shipped the binary. This just takes over
+# the `gh` name, then proves the thing actually runs before saying so.
+set -e
+[ "$1" = "configure" ] || [ -z "$1" ] || exit 0
+
+PREFIX=/var/jb
+LIB=$PREFIX/usr/local/lib/github-cli
+BIN=$PREFIX/usr/local/bin
+PATH=$PREFIX/usr/bin:$PREFIX/bin:/usr/bin:/bin:$PREFIX/usr/sbin:$PREFIX/sbin
+export PATH
+
+. "$LIB/version.env"
+
+say() { print -- "github-cli: $*"; }
+die() { print -u2 -- "github-cli: ERROR: $*"; exit 1; }
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+    else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+[ -x "$LIB/gh" ] || die "$LIB/gh is missing -- the package did not unpack correctly"
+
+# Checked before the smoke test rather than instead of it, because the two
+# failures need different advice. A hash mismatch means the file on disk is not
+# what was packaged (truncated download, full filesystem) and reinstalling fixes
+# it. A hash match followed by a failure to exec means iOS rejected the binary,
+# and reinstalling will do nothing at all.
+if command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; then
+    got=$(sha256_of "$LIB/gh")
+    [ "$got" = "$GH_BINARY_SHA256" ] || die "installed binary does not match the package
+  expected $GH_BINARY_SHA256
+  got      $got
+Reinstall: sudo apt install --reinstall com.andi.github-cli"
+fi
+
+# Take over `gh`, keeping anything that was there as a rollback.
+if [ -e "$BIN/gh" ] && [ ! -L "$BIN/gh" ] && [ ! -e "$BIN/gh-legacy" ]; then
+    cp -p "$BIN/gh" "$BIN/gh-legacy"
+    say "previous gh saved as gh-legacy"
+fi
+ln -sfn "$BIN/gh-ios" "$BIN/gh"
+
+# The only thing that proves what the user will actually run. A Go binary that
+# iOS refuses to load dies in dyld before main(), so this catches a bad
+# signature or a platform mismatch that every earlier check would pass.
+out=$("$BIN/gh" --version 2>&1) || die "gh does not run on this device: $out
+If the jailbreak was updated since install, re-signing may help:
+  sudo ldid -S$LIB/entitlements.plist $LIB/gh"
+case "$out" in
+    *"$GH_VERSION"*) ;;
+    *) die "unexpected --version output: $out" ;;
+esac
+
+# A `gh` earlier in PATH would win silently, and the user would be running the
+# other one while apt reports this package installed and working.
+other=$(command -v gh 2>/dev/null || true)
+if [ -n "$other" ] && [ "$other" != "$BIN/gh" ]; then
+    say "NOTE: another gh is earlier in PATH at $other -- that one will run instead"
+fi
+
+# postinst runs under sudo, so $HOME is root's. The credential that matters
+# lives in the device user's home.
+USERHOME=$PREFIX/var/mobile
+if [ -s "$USERHOME/.config/gh/hosts.yml" ]; then
+    say "installed $GH_VERSION"
+else
+    say "installed $GH_VERSION"
+    say "Sign in:  gh auth login"
+    say "  Tokens go to ~/.config/gh/hosts.yml -- iOS has no keychain CLI for gh"
+    say "  to use, so it falls back to its config file automatically."
+fi
+exit 0

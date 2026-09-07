@@ -1,0 +1,35 @@
+Package: com.andi.github-cli
+Name: GitHub CLI (gh)
+Version: @VERSION@
+Architecture: iphoneos-arm64
+Maintainer: andi <tafilajandi@gmail.com>
+Author: GitHub Inc. (upstream) / iOS port by andi
+Section: Development
+Priority: optional
+Installed-Size: @ISIZE@
+Depends: zsh, git, uikittools, firmware (>= 15.0)
+Recommends: openssh
+Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
+Depiction: https://@PAGES@/depiction.html
+Tag: role::developer
+Description: GitHub's official CLI, built natively for jailbroken iOS
+ gh from the command line: pull requests, issues, releases, gists, Actions runs,
+ repository management, and gh api for everything else.
+ .
+ This is a real ios/arm64 build of the upstream source, not a patched macOS
+ binary. Go supports ios/arm64 as a first-class port, so the compiler emits an
+ iOS Mach-O directly -- no Mach-O rewriting, no shim library, no JIT
+ entitlements, and nothing downloaded at install time. gh is MIT licensed, so
+ the binary ships in this package.
+ .
+ One difference from desktop gh: token storage. gh keeps credentials in the
+ system keychain via /usr/bin/security, which iOS does not have, so it falls
+ back to its config file at ~/.config/gh/hosts.yml -- the same path it uses on
+ Linux without a secret service. Sign in as usual with `gh auth login`; the
+ fallback is automatic and `--insecure-storage` makes it explicit.
+ .
+ gh extensions do not work, in either form. Script extensions fail at exec: a
+ Go process on iOS cannot execve a file with a shebang. Binary extensions fail
+ at install, because they publish darwin/linux/windows release assets and gh
+ asks for ios-arm64. A hand-built, signed ios/arm64 binary extension does run,
+ and gh's ! shell aliases work normally.

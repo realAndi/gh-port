@@ -1,0 +1,14 @@
+#!/var/jb/usr/bin/zsh
+set -e
+PREFIX=/var/jb
+BIN=$PREFIX/usr/local/bin
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # The symlink is made by the postinst, so dpkg does not know to remove it.
+    # Hand `gh` back to whatever owned it before us.
+    if [ -L "$BIN/gh" ]; then
+        rm -f "$BIN/gh"
+        [ -e "$BIN/gh-legacy" ] && mv "$BIN/gh-legacy" "$BIN/gh" || true
+    fi
+fi
+exit 0

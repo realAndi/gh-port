@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Run as a platform binary rather than a sandboxed app: gh has to read and
+         write the user's repositories anywhere on the filesystem, and to fork
+         and exec git. -->
+    <key>platform-application</key>
+    <true/>
+    <key>com.apple.private.security.no-sandbox</key>
+    <true/>
+    <key>get-task-allow</key>
+    <true/>
+
+    <!-- Deliberately absent, and worth saying why, because the sibling project
+         (CCForiOS) needs all of them and this one needs none:
+
+         * JIT (dynamic-codesigning, com.apple.security.cs.allow-jit,
+           allow-unsigned-executable-memory, skip-library-validation)
+           Claude Code is a Bun binary and JavaScriptCore cannot start without a
+           working JIT. gh is Go: ahead-of-time compiled, nothing in the process
+           ever writes to executable memory. iOS's W^X enforcement is simply not
+           in the picture.
+
+         * Keychain (application-identifier, keychain-access-groups)
+           gh stores its token through zalando/go-keyring, which on darwin shells
+           out to /usr/bin/security -- a binary iOS does not have. That fails
+           fast with ENOENT and gh falls back to its plaintext config file, a
+           path it supports on purpose (it is what Linux without a secret service
+           does). No entitlement can conjure up the missing CLI, so there is
+           nothing to grant. If this ever grows a direct SecItem backend, the two
+           keys go back here; CCForiOS confirmed SecItemAdd works on iOS with a
+           keychain group named after the package. -->
+</dict>
+</plist>
