@@ -1,0 +1,119 @@
+{
+  "class": "DepictionTabView",
+  "minVersion": "0.1",
+  "tintColor": "#2DA44E",
+  "tabs": [
+    {
+      "class": "DepictionStackView",
+      "tabname": "Details",
+      "views": [
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "GitHub's official CLI, built natively for jailbroken iOS.\n\nPull requests, issues, releases, gists, Actions runs, repository management, and `gh api` for everything else — from a terminal on your phone."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "What gets installed",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "A real `ios/arm64` build of the upstream source. Not a patched macOS binary: Go supports iOS as a first-class target, so the compiler emits an iOS executable directly.\n\nNo Mach-O rewriting, no shim library, no JIT entitlements, and **nothing is downloaded at install time**. gh is MIT licensed, so the binary ships in the package.\n\nZsh and bash completions are installed too."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "At a glance",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        { "class": "DepictionTableTextView", "title": "Package", "text": "com.andi.github-cli" },
+        { "class": "DepictionTableTextView", "title": "Download", "text": "about 10 MB" },
+        { "class": "DepictionTableTextView", "title": "Installed size", "text": "about 38 MB" },
+        { "class": "DepictionTableTextView", "title": "Tested on", "text": "iOS 17.3, Dopamine" },
+        {
+          "class": "DepictionTableButtonView",
+          "title": "Port source and write-up",
+          "action": "https://github.com/realAndi/gh-port",
+          "openExternal": true
+        },
+        {
+          "class": "DepictionTableButtonView",
+          "title": "gh upstream",
+          "action": "https://github.com/cli/cli",
+          "openExternal": true
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "Getting started",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "Sign in once, then use it normally:\n\n`gh auth login`\n\nApprove in Safari, then `gh pr list`."
+        }
+      ]
+    },
+    {
+      "class": "DepictionStackView",
+      "tabname": "Requires",
+      "views": [
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "- A rootless jailbreak (`/var/jb`). Tested on Dopamine.\n- iOS 15 or later, arm64. Tested on iOS 17.3, iPhone 15 Pro.\n- No network connection needed to install."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "Dependencies",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "zsh, git, uikittools. Sileo installs any that are missing before this one.\n\nopenssh is recommended, for `git@github.com` remotes."
+        }
+      ]
+    },
+    {
+      "class": "DepictionStackView",
+      "tabname": "Notes",
+      "views": [
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**Tokens live in `~/.config/gh/hosts.yml`, in plain text.** gh normally uses the system keychain through `/usr/bin/security`, which iOS does not have, so it falls back to its config file — the same thing it does on Linux without a secret service. The fallback is automatic; `--insecure-storage` makes it explicit. Anything that can read your files can read the token."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**Extensions do not work, in either form.** Script extensions fail at exec: a Go process on iOS cannot `execve` a file with a shebang. Binary extensions fail at install, because they publish darwin, linux and windows release assets and gh asks for `ios-arm64`.\n\nA hand-built, signed `ios/arm64` binary extension does run, and gh's `!` shell aliases work normally. `gh copilot` cannot install its helper for the same reason."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**Sileo is the updater.** gh's own update notifier is off; it would point at Homebrew or a desktop download, neither of which applies here.\n\nAny previous `gh` on your device stays available as `gh-legacy`."
+        }
+      ]
+    }
+  ]
+}

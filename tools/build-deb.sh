@@ -92,7 +92,7 @@ sed -e "s|@VERSION@|$VERSION-$REVISION|g" \
     -e "s|@REPO@|$GH_REPO|g" -e "s|@PAGES@|$GH_PAGES|g" \
     "$ROOT/packaging/DEBIAN/control.in" > "$STAGE/DEBIAN/control"
 [ -n "$GH_REPO"  ] || sed -i.bak '/^Icon:/d'      "$STAGE/DEBIAN/control"
-[ -n "$GH_PAGES" ] || sed -i.bak '/^Depiction:/d' "$STAGE/DEBIAN/control"
+[ -n "$GH_PAGES" ] || sed -i.bak '/^Native-Depiction:/d;/^SileoDepiction:/d' "$STAGE/DEBIAN/control"
 rm -f "$STAGE/DEBIAN/control.bak"
 
 install -m 755 "$ROOT/packaging/DEBIAN/postinst" "$STAGE/DEBIAN/postinst"

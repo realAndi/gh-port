@@ -10,7 +10,8 @@ Installed-Size: @ISIZE@
 Depends: zsh, git, uikittools, firmware (>= 15.0)
 Recommends: openssh
 Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
-Depiction: https://@PAGES@/depiction.html
+Native-Depiction: https://@PAGES@/depiction.json
+SileoDepiction: https://@PAGES@/depiction.json
 Tag: role::developer
 Description: GitHub's official CLI, built natively for jailbroken iOS
  gh from the command line: pull requests, issues, releases, gists, Actions runs,
