@@ -33,6 +33,7 @@
           "useBoldText": true,
           "useBottomMargin": true
         },
+        { "class": "DepictionTableTextView", "title": "Version", "text": "@VERSION@" },
         { "class": "DepictionTableTextView", "title": "Package", "text": "com.andi.github-cli" },
         { "class": "DepictionTableTextView", "title": "Download", "text": "about 10 MB" },
         { "class": "DepictionTableTextView", "title": "Installed size", "text": "about 38 MB" },
